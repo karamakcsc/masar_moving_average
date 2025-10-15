@@ -137,13 +137,12 @@ app_license = "mit"
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	"Warehouse": {
+		"validate": "masar_moving_average.custom.warehouse.warehouse.validate",
+		"on_trash": "masar_moving_average.custom.warehouse.warehouse.on_trash"
+	}
+}
 
 # Scheduled Tasks
 # ---------------
@@ -174,9 +173,9 @@ app_license = "mit"
 # Overriding Methods
 # ------------------------------
 #
-# override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "masar_moving_average.event.get_events"
-# }
+override_whitelisted_methods = {
+	"erpnext.stock.utils.get_incoming_rate": "masar_moving_average.override._utils.get_incoming_rate"
+}
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
@@ -242,3 +241,32 @@ app_license = "mit"
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
 
+fixtures = [
+    {"dt": "Custom Field", "filters": [
+        [
+            "name", "in", [
+                'Warehouse-custom_cost_zone'
+            ]
+        ]
+    ]},
+    {
+        "doctype": "Property Setter",
+        "filters": [
+            [
+                "name",
+                "in",
+                [
+                   'Warehouse-main-field_order'
+                ]
+            ]
+                ]
+    }
+]
+from erpnext.stock import stock_ledger
+from masar_moving_average.override import _stock_ledger
+from erpnext.stock import utils as stock_utils
+from masar_moving_average.override import _utils as moving_average_utils
+stock_ledger.repost_future_sle = _stock_ledger.repost_future_sle
+stock_ledger.update_entries_after = _stock_ledger.update_entries_after
+stock_ledger.get_valuation_rate = _stock_ledger.get_valuation_rate
+stock_utils.get_incoming_rate = moving_average_utils.get_incoming_rate
