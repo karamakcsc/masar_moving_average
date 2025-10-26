@@ -2,16 +2,21 @@ import frappe
 
 def validate(self , method): 
     remove_warehouse_from_other_cost_zones(self)
-    add_warehouse_to_cost_zone(self)
+    if not self.is_new():
+        remove_warehouse_from_other_cost_zones(self)
     
 def on_trash(self , method):
     remove_warehouse_from_other_cost_zones_on_delete(self)
+    
+def after_insert(self, method):
+    add_warehouse_to_cost_zone(self)
+    
 def add_warehouse_to_cost_zone(self):
     if not self.custom_cost_zone:
         return
     
     cost_zone = frappe.get_doc("Cost Zone", self.custom_cost_zone)
-    if self.name not in cost_zone.warehouses:
+    if not any(w.warehouse == self.name for w in cost_zone.warehouses):
         cost_zone.append("warehouses", {
             "warehouse": self.name
         })

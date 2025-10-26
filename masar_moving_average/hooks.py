@@ -140,7 +140,8 @@ app_license = "mit"
 doc_events = {
 	"Warehouse": {
 		"validate": "masar_moving_average.custom.warehouse.warehouse.validate",
-		"on_trash": "masar_moving_average.custom.warehouse.warehouse.on_trash"
+		"on_trash": "masar_moving_average.custom.warehouse.warehouse.on_trash", 
+        "after_insert": "masar_moving_average.custom.warehouse.warehouse.after_insert"
 	}
 }
 
