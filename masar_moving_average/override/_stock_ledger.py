@@ -1342,10 +1342,10 @@ class update_entries_after:
 						msg = f"{msg} As the full stock is reserved for other sales orders, you're not allowed to consume the stock."
 
 				msg_list.append(msg)
-
 		if msg_list:
 			message = "\n\n".join(msg_list)
 			if self.verbose:
+				
 				frappe.throw(message, NegativeStockError, title=_("Insufficient Stock"))
 			else:
 				raise NegativeStockError(message)
