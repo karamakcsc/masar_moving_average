@@ -1,7 +1,7 @@
 import frappe 
 
 def validate(self , method): 
-    remove_warehouse_from_other_cost_zones(self)
+    # remove_warehouse_from_other_cost_zones(self)
     if not self.is_new():
         remove_warehouse_from_other_cost_zones(self)
     add_warehouse_to_cost_zone(self)
