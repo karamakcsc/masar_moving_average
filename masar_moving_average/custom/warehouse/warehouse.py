@@ -1,17 +1,26 @@
 import frappe 
 
 def validate(self , method): 
-    # remove_warehouse_from_other_cost_zones(self)
     if not self.is_new():
-        remove_warehouse_from_other_cost_zones(self)
-    add_warehouse_to_cost_zone(self)
+        remove_warehouse_from_all_cost_zones(self)
+        add_warehouse_to_cost_zone(self)
     
 def on_trash(self , method):
     remove_warehouse_from_other_cost_zones_on_delete(self)
     
 def after_insert(self, method):
-    add_warehouse_to_cost_zone(self)
-    
+    frappe.enqueue(
+        "masar_moving_average.custom.warehouse.warehouse.sync_cost_zone_links",
+        queue="short",
+        warehouse=self.name,
+        enqueue_after_commit=True
+    )
+def sync_cost_zone_links(warehouse):
+    warehouse_doc = frappe.get_doc("Warehouse", warehouse)
+    remove_warehouse_from_all_cost_zones(warehouse_doc)
+    if warehouse_doc.custom_cost_zone:
+        add_warehouse_to_cost_zone(warehouse_doc)  
+        
 def add_warehouse_to_cost_zone(self):
     if not self.custom_cost_zone:
         return
@@ -23,7 +32,7 @@ def add_warehouse_to_cost_zone(self):
         })
         cost_zone.save()
         
-def remove_warehouse_from_other_cost_zones(self):
+def remove_warehouse_from_all_cost_zones(self):
     wh_exist = frappe.db.sql("""
         SELECT parent FROM `tabCost Zone Details`
         WHERE warehouse = %s

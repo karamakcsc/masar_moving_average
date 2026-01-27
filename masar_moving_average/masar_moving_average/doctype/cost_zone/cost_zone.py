@@ -6,4 +6,13 @@ from frappe.model.document import Document
 
 
 class CostZone(Document):
-	pass
+
+    def validate(self):
+        self.reindex_child_table("warehouses")
+
+    def reindex_child_table(self, fieldname):
+        if not self.get(fieldname):
+            return
+
+        for i, row in enumerate(self.get(fieldname), start=1):
+            row.idx = i
