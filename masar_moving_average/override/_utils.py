@@ -75,20 +75,7 @@ def get_incoming_rate(args, raise_error_if_no_rate=True):
 					else None
 				)
 		elif valuation_method == "Moving Average":
-      
-			voucher_no = args.get("voucher_no") or args.get("name")
-			in_rate = get_valuation_rate(
-				args.get("item_code"),
-				args.get("warehouse"),
-				args.get("voucher_type"),
-				voucher_no,
-				args.get("allow_zero_valuation"),
-				currency=erpnext.get_company_currency(args.get("company")),
-				company=args.get("company"),
-				raise_error_if_no_rate=raise_error_if_no_rate,
-				batch_no=args.get("batch_no"),
-				serial_no=args.get("serial_no"),
-			)
+			in_rate = previous_sle.get("valuation_rate")
 
 	if in_rate is None:
 		voucher_no = args.get("voucher_no") or args.get("name")
