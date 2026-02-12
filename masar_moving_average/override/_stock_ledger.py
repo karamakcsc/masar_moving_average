@@ -1355,101 +1355,110 @@ class update_entries_after:
 			cost_zone = frappe.db.get_value("Warehouse", warehouse, "custom_cost_zone")
 			if not cost_zone:
 				frappe.throw(f"Cost Zone not set for Warehouse {warehouse}")
-
-			if cost_zone not in cost_zones:
-				cost_zones[cost_zone] = {
-					"warehouses_with_transactions": {},
-					"valuation_rate": None,
-				}
-
-			cost_zones[cost_zone]["warehouses_with_transactions"][warehouse] = data
-
+			z = cost_zones.setdefault(cost_zone, {"tx": {}, "valuation_rate": None})
+			z["tx"][warehouse] = data
 			if data.valuation_rate is not None:
-				cost_zones[cost_zone]["valuation_rate"] = data.valuation_rate
-
+				z["valuation_rate"] = flt(data.valuation_rate)
 		for cost_zone, zone_data in cost_zones.items():
-			all_warehouses_in_zone = frappe.db.get_all(
+			valuation_rate = zone_data["valuation_rate"]
+			if valuation_rate is None:
+				pass
+			zone_wh = frappe.get_all(
 				"Warehouse",
 				filters={"custom_cost_zone": cost_zone},
-				fields=["name"],
-			)
+				pluck="name"
+			) or []
 
-			valuation_rate = zone_data["valuation_rate"]
-			warehouses_with_transactions = zone_data["warehouses_with_transactions"]
+			if not zone_wh:
+				continue
 
-			for warehouse_data in all_warehouses_in_zone:
-				warehouse = warehouse_data.name
-				bin_name = get_or_make_bin(self.item_code, warehouse)
-
-				updated_values = {}
-
-				# If this warehouse had a transaction, update quantity and stock_value
-				if warehouse in warehouses_with_transactions:
-					transaction_data = warehouses_with_transactions[warehouse]
-					updated_values.update({
-						"actual_qty": transaction_data.qty_after_transaction,
-						"stock_value": transaction_data.stock_value,
-					})
-				else:
-					if valuation_rate is not None:
-						current_bin_data = frappe.db.get_value(
-							"Bin",
-							bin_name,
-							["actual_qty"],
-							as_dict=True,
-						)
-
-						if current_bin_data and current_bin_data.actual_qty:
-							new_stock_value = current_bin_data.actual_qty * valuation_rate
-							updated_values["stock_value"] = new_stock_value
-
-				if valuation_rate is not None:
-					updated_values["valuation_rate"] = valuation_rate
-
-				if updated_values:
-					frappe.db.set_value("Bin", bin_name, updated_values, update_modified=True)
+			tx_wh_map = zone_data["tx"] 
+			tx_wh = list(tx_wh_map.keys())
+			for wh in tx_wh:
+				get_or_make_bin(self.item_code, wh)
+			if tx_wh:
+				cases_actual = []
+				cases_value = []
+				cases_rate = []
+				params = []
+				for wh in tx_wh:
+					d = tx_wh_map[wh]
+					cases_actual.append("WHEN %s THEN %s")
+					params.extend([wh, flt(d.qty_after_transaction)])
+					cases_value.append("WHEN %s THEN %s")
+					params.extend([wh, flt(d.stock_value)])
+					vr = flt(valuation_rate) if valuation_rate is not None else flt(d.valuation_rate or 0)
+					cases_rate.append("WHEN %s THEN %s")
+					params.extend([wh, vr])
+				wh_placeholders = ", ".join(["%s"] * len(tx_wh))
+				params_tail = [self.item_code] + tx_wh
+				frappe.db.sql(
+					f"""
+					UPDATE `tabBin`
+					SET
+						actual_qty = CASE warehouse {' '.join(cases_actual)} ELSE actual_qty END,
+						stock_value = CASE warehouse {' '.join(cases_value)} ELSE stock_value END,
+						valuation_rate = CASE warehouse {' '.join(cases_rate)} ELSE valuation_rate END
+					WHERE item_code = %s
+					AND warehouse IN ({wh_placeholders})
+					""",
+					params + params_tail,
+				)
+			if valuation_rate is not None:
+				non_tx_wh = [w for w in zone_wh if w not in tx_wh_map]
+				if non_tx_wh:
+					wh_placeholders = ", ".join(["%s"] * len(non_tx_wh))
+					frappe.db.sql(
+						f"""
+						UPDATE `tabBin`
+						SET
+							valuation_rate = %s,
+							stock_value = (IFNULL(actual_qty, 0) * %s)
+						WHERE item_code = %s
+						AND warehouse IN ({wh_placeholders})
+						""",
+						[flt(valuation_rate), flt(valuation_rate), self.item_code] + non_tx_wh,
+					)
 
 	def update_bin_data(self, sle):
 		cost_zone = frappe.db.get_value("Warehouse", sle.warehouse, "custom_cost_zone")
-
 		if not cost_zone:
 			frappe.throw(f"Cost Zone not set for Warehouse {sle.warehouse}")
 
-		warehouses_in_zone = frappe.db.get_all(
+		warehouses_in_zone = frappe.get_all(
 			"Warehouse",
 			filters={"custom_cost_zone": cost_zone},
-			fields=["name"],
+			pluck="name",
+		) or []
+		current_bin = get_or_make_bin(sle.item_code, sle.warehouse)
+
+		values_current = {
+			"actual_qty": flt(sle.qty_after_transaction),
+			"stock_value": flt(sle.stock_value),
+		}
+		if sle.valuation_rate is not None:
+			values_current["valuation_rate"] = flt(sle.valuation_rate)
+
+		frappe.db.set_value("Bin", current_bin, values_current, update_modified=True)
+		if sle.valuation_rate is None:
+			return
+		other_wh = [w for w in warehouses_in_zone if w != sle.warehouse]
+		if not other_wh:
+			return
+
+		placeholders = ", ".join(["%s"] * len(other_wh))
+		rate = flt(sle.valuation_rate)
+		frappe.db.sql(
+			f"""
+			UPDATE `tabBin`
+			SET
+				valuation_rate = %s,
+				stock_value = (IFNULL(actual_qty, 0) * %s)
+			WHERE item_code = %s
+			AND warehouse IN ({placeholders})
+			""",
+			[rate, rate, sle.item_code] + other_wh,
 		)
-
-		for warehouse_data in warehouses_in_zone:
-			warehouse = warehouse_data.name
-			bin_name = get_or_make_bin(sle.item_code, warehouse)
-
-			values_to_update = {}
-
-			if warehouse == sle.warehouse:
-				values_to_update.update({
-					"actual_qty": sle.qty_after_transaction,
-					"stock_value": sle.stock_value,
-				})
-			else:
-				if sle.valuation_rate is not None:
-					current_bin_data = frappe.db.get_value(
-						"Bin",
-						bin_name,
-						["actual_qty"],
-						as_dict=True,
-					)
-
-					if current_bin_data and current_bin_data.actual_qty:
-						new_stock_value = current_bin_data.actual_qty * sle.valuation_rate
-						values_to_update["stock_value"] = new_stock_value
-
-			if sle.valuation_rate is not None:
-				values_to_update["valuation_rate"] = sle.valuation_rate
-
-			if values_to_update:
-				frappe.db.set_value("Bin", bin_name, values_to_update)
 
 
 
