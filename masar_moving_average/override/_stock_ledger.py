@@ -118,25 +118,25 @@ def get_cost_zone_stock_data(item_code, cost_zone, company=None):
 
 
 def update_cost_zone_valuation_rate(item_code, cost_zone, new_valuation_rate, company=None):
-	"""Update valuation rate for all warehouses in a cost zone"""
+	"""Update valuation rate for all warehouses in a cost zone (BULK, 1 query)."""
 	warehouses = get_warehouses_in_cost_zone(cost_zone, company)
-	
-	for warehouse in warehouses:
-		bin_name = get_or_make_bin(item_code, warehouse)
-		
-		# Get current bin data
-		bin_data = frappe.db.get_value("Bin", bin_name, 
-			["actual_qty", "stock_value"], as_dict=1)
-		
-		if bin_data and bin_data.actual_qty:
-			# Calculate new stock value based on new valuation rate
-			new_stock_value = flt(bin_data.actual_qty) * flt(new_valuation_rate)
-			
-			# Update bin with new valuation rate and stock value
-			frappe.db.set_value("Bin", bin_name, {
-				"valuation_rate": new_valuation_rate,
-				"stock_value": new_stock_value
-			})
+	if not warehouses:
+		return
+	new_rate = flt(new_valuation_rate)
+	placeholders = ", ".join(["%s"] * len(warehouses))
+	params = [new_rate, new_rate, item_code] + warehouses
+	frappe.db.sql(
+		f"""
+		UPDATE `tabBin`
+		SET
+			valuation_rate = %s,
+			stock_value = (IFNULL(actual_qty, 0) * %s)
+		WHERE item_code = %s
+		  AND warehouse IN ({placeholders})
+		  AND IFNULL(actual_qty, 0) != 0
+		""",
+		params,
+	)
 
 def repost_future_sle(
 	args=None,
